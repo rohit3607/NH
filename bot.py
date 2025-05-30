@@ -10,9 +10,10 @@ import aiohttp
 import pyromod.listen
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
+
 from pyrogram.types import (
     Message, CallbackQuery, InlineQueryResultArticle,
-    InputTextMessageContent, InlineKeyboardMarkup, InlineKeyboardButton
+    InputTextMessageContent, InlineQueryResultPhoto, InlineKeyboardMarkup, InlineKeyboardButton
 )
 
 # ---------------- CONFIG ---------------- #
@@ -27,7 +28,7 @@ async def root_route_handler(request):
     return web.json_response("Rohit")
 
 async def web_server():
-    web_app = web.Application(client_max_size=30000000)
+    web_app = web.Application(client_max_size=9000000000)
     web_app.add_routes(routes)
     return web_app
 
@@ -43,7 +44,7 @@ class Bot(Client):
         )
         self.LOGGER = LOGGER
 
-    async def start(self):
+    async def start(self, *args, **kwargs):
         await super().start()
         usr_bot_me = await self.get_me()
         self.set_parse_mode(ParseMode.HTML)
@@ -101,17 +102,23 @@ async def start_command(client: Client, message: Message):
 @app.on_inline_query()
 async def inline_search(client: Client, inline_query):
     query = inline_query.query.strip()
-    if not query:
-        await inline_query.answer([], switch_pm_text="Type something to search", switch_pm_parameter="start")
-        return
+    page = int(inline_query.offset) if inline_query.offset else 1
 
-    results = await search_nhentai(query)
-    await inline_query.answer(results, cache_time=1, is_personal=True)
+    # Default to homepage if no search query
+    results = await search_nhentai(query or None, page)
+    next_offset = str(page + 1) if len(results) == 10 else ""
+
+    await inline_query.answer(results, cache_time=1, is_personal=True, next_offset=next_offset)
 
 # ---------------- SEARCH FUNCTION ---------------- #
-async def search_nhentai(query):
-    url = f"https://nhentai.net/search/?q={query.replace(' ', '+')}"
+
+async def search_nhentai(query=None, page=1):
     results = []
+
+    if query:
+        url = f"https://nhentai.net/search/?q={query.replace(' ', '+')}&page={page}"
+    else:
+        url = f"https://nhentai.net/?page={page}"  # Homepage galleries
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
@@ -265,7 +272,10 @@ async def handle_download_button(client: Client, callback_query):
     finally:
         if pdf_path and os.path.exists(pdf_path):
             os.remove(pdf_path)
+
+
 # ---------------- UPDATE CMD ---------------- #
+
 @app.on_message(filters.command("update") & filters.user(OWNER_ID))
 async def update_bot(client, message):
     msg = await message.reply_text("🔄 Pulling updates from GitHub...")
