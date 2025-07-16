@@ -23,7 +23,7 @@ async def dismiss_consent_popup(page):
 
 async def run(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         print(f"[STEP 1] Opening URL: {url}")
         await page.goto(url)
