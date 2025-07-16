@@ -1,4 +1,5 @@
 from aiohttp import ClientSession
+from aiohttp_socks import ProxyConnector
 from bs4 import BeautifulSoup
 from asyncio import sleep as asleep
 
@@ -6,7 +7,13 @@ class DDLException(Exception):
     """Custom exception for direct download link errors."""
     pass
 
-async def vplink(url: str, domain: str = "https://vplink.in/", ref: str = "https://kaomojihub.com/", sltime: int = 5) -> str:
+async def vplink(
+    url: str,
+    domain: str = "https://vplink.in/",
+    ref: str = "https://kaomojihub.com/",
+    sltime: int = 5,
+    proxy_url: str = "socks5://116.106.108.236:1080"
+) -> str:
     """
     Async bypass function for vplink.in.
     """
@@ -19,7 +26,8 @@ async def vplink(url: str, domain: str = "https://vplink.in/", ref: str = "https
         '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
     )
 
-    async with ClientSession() as session:
+    connector = ProxyConnector.from_url(proxy_url)
+    async with ClientSession(connector=connector) as session:
         print(f"[INFO] Sending initial GET request to {domain}{code}")
         async with session.get(
             f"{domain}{code}",
