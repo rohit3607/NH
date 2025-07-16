@@ -96,6 +96,32 @@ async def start_command(_, message: Message):
         reply_markup=keyboard
     )
 
+
+# ---------------- BYPASS HANDLER ---------------- #
+@app.on_message(filters.command('bypass') & filters.private & filters.reply)
+async def bypass_command(_, message: Message):
+    replied = message.reply_to_message
+    if not replied or not replied.text:
+        return await message.reply("❌ Please reply to a valid VP shortlink.")
+
+    url = replied.text.strip()
+    if not url.startswith("https://vp."):
+        return await message.reply("❌ This doesn't seem to be a valid VP link.")
+
+    await message.reply("🔄 Bypassing the link...")
+
+    try:
+        final_url = await bypass_vp_link(url)
+        await message.reply(f"✅ Final URL:\n`{final_url}`", disable_web_page_preview=True)
+    except Exception as e:
+        await message.reply(f"❌ Failed to bypass link.\nError: `{e}`")
+
+
+async def bypass_vp_link(url: str) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, allow_redirects=True) as resp:
+            return str(resp.url)
+
 # ---------------- INLINE SEARCH ---------------- #
 @app.on_inline_query()
 async def inline_search(client: Client, inline_query):
