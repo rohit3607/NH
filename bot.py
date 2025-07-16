@@ -1,72 +1,105 @@
 import asyncio
 from playwright.async_api import async_playwright
+import time, sys
 
-async def bypass_link(url: str):
+BUTTON_SELECTORS = [
+    'text=CONTINUE',
+    'text="Dual Tap To \\"Go To Link\\""',
+    'text="Click here"',
+    'text=Go To Link'
+]
+
+
+async def bypass_vplink(url: str):
+    print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
+        await page.goto(url, timeout=60000)
 
-        print(f"[STEP 1] Navigating to: {url}")
-        await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(15000)  # Wait 15s to let popup finish
+        step = 1
+        first_page = True
 
-        # Step 1: Click "CONTINUE" after waiting
-        try:
-            btn = await page.wait_for_selector('text=CONTINUE', timeout=5000)
-            await btn.click()
-            print("[STEP 1] CONTINUE clicked.")
-        except Exception:
-            print("[WARN] CONTINUE not clickable in step 1.")
+        while True:
+            print(f"[STEP {step}] Current URL: {page.url}")
+            await page.wait_for_timeout(1000)
 
-        await page.wait_for_load_state('load')
-        await page.wait_for_timeout(5000)
-        print(f"[STEP 2] Current URL: {page.url}")
+            if first_page:
+                print("[INFO] Waiting 15s before clicking first CONTINUE...")
+                await page.wait_for_timeout(15000)
+                first_page = False
 
-        # Step 2: Wait, click DUAL TAP, wait, then click the second version
-        try:
-            dual_buttons = await page.query_selector_all('text=/DUAL TAP/i')
-            if dual_buttons:
-                await dual_buttons[0].click()
-                print("[STEP 2] First DUAL TAP clicked.")
-                await page.wait_for_timeout(10000)  # Wait for second button to appear
+            retry_count = 0
+            max_retries = 3
+            clicked = False
+            special_dual_tap_clicked = False
 
-                # Find second one
-                all_buttons = await page.query_selector_all('text=/DUAL TAP/i')
-                if len(all_buttons) >= 2:
-                    await all_buttons[-1].click()
-                    print("[STEP 2] Second DUAL TAP clicked.")
-        except Exception as e:
-            print(f"[WARN] Step 2 failed: {e}")
+            while retry_count < max_retries and not clicked:
+                buttons = await page.locator("button, a").all()
 
-        await page.wait_for_timeout(15000)
+                for i, button in enumerate(buttons):
+                    try:
+                        text = (await button.inner_text()).strip().upper()
 
-        # Step 3: Continue or wait for redirection
-        print(f"[STEP 3] Current URL: {page.url}")
-        await page.wait_for_timeout(5000)
+                        if step == 2 and any(key in text for key in ["DUAL TAP", "CLICK HERE"]):
+                            print(f"[INFO] Step 2 Special Button Found: {text}")
+                            await button.scroll_into_view_if_needed()
+                            await button.click(timeout=10000)
+                            special_dual_tap_clicked = True
+                            clicked = True
+                            break
 
-        # Step 4: Handle final redirection or GET LINK button
-        final_url = page.url
-        if "vplink.in" in final_url:
-            await page.wait_for_timeout(8000)
-            try:
-                get_link_btn = await page.query_selector('text=/GET LINK/i')
-                if get_link_btn:
-                    await get_link_btn.scroll_into_view_if_needed()
-                    await get_link_btn.wait_for_element_state("visible")
-                    await get_link_btn.wait_for_element_state("enabled")
-                    await get_link_btn.click()
-                    print("[STEP 4] GET LINK clicked.")
-                    await page.wait_for_timeout(5000)
-                    final_url = page.url
-            except Exception:
-                print("[WARN] GET LINK button not found.")
+                        elif text in ["CONTINUE", "GET LINK", "GO TO LINK"]:
+                            print(f"[INFO] Found button: {text}")
+                            await button.scroll_into_view_if_needed()
+                            await button.click(timeout=10000)
+                            clicked = True
+                            break
+                    except:
+                        continue
 
-        print(f"[SUCCESS] Final Resolved URL: {final_url}")
+                if not clicked:
+                    retry_count += 1
+                    print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
+                    await page.wait_for_timeout(10000)
+
+            if not clicked:
+                print("[ERROR] Could not click button after retries. Ending.")
+                break
+
+            if special_dual_tap_clicked:
+                print("[INFO] Waiting 5s after clicking Dual Tap...")
+                await page.wait_for_timeout(5000)
+
+                # After waiting, find new button that appears (bottom of page)
+                new_buttons = await page.locator("button, a").all()
+                for btn in reversed(new_buttons):  # Start from bottom
+                    try:
+                        text = (await btn.inner_text()).strip().upper()
+                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE", "DUAL TAP"]):
+                            print(f"[INFO] Clicking newly appeared button: {text}")
+                            await btn.scroll_into_view_if_needed()
+                            await btn.click(timeout=10000)
+                            await page.wait_for_timeout(5000)
+                            break
+                    except:
+                        continue
+
+            await page.wait_for_timeout(2000)
+
+            if "vplink.in" in page.url and "go" in page.url:
+                print(f"[SUCCESS] Final Link: {page.url}")
+                break
+
+            step += 1
+
         await browser.close()
-        return final_url
 
-# Run example
 if __name__ == "__main__":
-    input_url = "https://vplink.in/UNqtJ1lP"
-    asyncio.run(bypass_link(input_url))
+    if len(sys.argv) != 2:
+        print("Usage: python3 bypass.py <vplink_url>")
+        sys.exit(1)
+
+    link = sys.argv[1]
+    asyncio.run(bypass_vplink(link))
