@@ -17,45 +17,51 @@ async def bypass_vplink(url: str):
             print(f"[STEP {step}] Current URL: {page.url}")
             await page.wait_for_timeout(1000)
 
-            # Wait 15s only on the first page before any click
             if first_page:
                 print("[INFO] Waiting 15s before clicking first CONTINUE...")
                 await page.wait_for_timeout(15000)
                 first_page = False
 
-            buttons = await page.locator("button, a").all()
+            retry_count = 0
+            max_retries = 3
             clicked = False
 
-            for button in buttons:
-                try:
-                    text = (await button.inner_text()).strip().upper()
-                    if text in ["CONTINUE", "GET LINK"]:
-                        print(f"[INFO] Found button: {text}")
-                        await button.scroll_into_view_if_needed()
-                        await button.click(timeout=10000)
-                        clicked = True
+            while retry_count < max_retries and not clicked:
+                buttons = await page.locator("button, a").all()
 
-                        # Wait based on step (for known flow)
-                        if text == "GET LINK":
-                            await page.wait_for_timeout(3000)
-                        elif step == 2:
-                            await page.wait_for_timeout(5000)  # wait 5s after first CONTINUE
-                        elif step == 3:
-                            await page.wait_for_timeout(5000)
-                        elif step == 4:
-                            await page.wait_for_timeout(10000)
-                        break
-                except Exception as e:
-                    continue
+                for button in buttons:
+                    try:
+                        text = (await button.inner_text()).strip().upper()
+                        if text in ["CONTINUE", "GET LINK"]:
+                            print(f"[INFO] Found button: {text}")
+                            await button.scroll_into_view_if_needed()
+                            await button.click(timeout=10000)
+                            clicked = True
+
+                            # Wait based on step (approx delays after each button)
+                            if text == "GET LINK":
+                                await page.wait_for_timeout(3000)
+                            elif step == 2:
+                                await page.wait_for_timeout(5000)
+                            elif step == 3:
+                                await page.wait_for_timeout(5000)
+                            elif step == 4:
+                                await page.wait_for_timeout(10000)
+                            break
+                    except Exception as e:
+                        continue
+
+                if not clicked:
+                    retry_count += 1
+                    print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
+                    await page.wait_for_timeout(10000)
 
             if not clicked:
-                print("[WARN] No clickable buttons found on this step. Ending.")
+                print("[ERROR] Could not click button after retries. Ending.")
                 break
 
-            # Wait a moment after click
             await page.wait_for_timeout(2000)
 
-            # Check if on vplink final domain
             if "vplink.in" in page.url and "go" in page.url:
                 print(f"[SUCCESS] Final Link: {page.url}")
                 break
