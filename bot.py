@@ -76,11 +76,11 @@ async def vplink(url: str, domain: str = "https://vplink.in/", ref: str = "https
                     json_resp = await resp.json()
                     print(f"[DEBUG] JSON Response: {json_resp}")
 
-                    if 'url' in json_resp:
-                        print(f"[SUCCESS] Final URL: {json_resp['url']}")
-                        return json_resp['url']
-                    else:
-                        raise DDLException("Key 'url' not found in JSON response.")
+                    if json_resp.get("status") != "success" or not json_resp.get("url"):
+                        raise DDLException(f"Server returned error: {json_resp.get('message', 'Unknown error')}")
+
+                    print(f"[SUCCESS] Final URL: {json_resp['url']}")
+                    return json_resp["url"]
                 else:
                     raise DDLException("Response is not JSON or missing 'url'.")
             except Exception as e:
