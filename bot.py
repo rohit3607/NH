@@ -6,7 +6,7 @@ class DDLException(Exception):
     """Custom exception for direct download link errors."""
     pass
 
-url = "https://vplink.in/XQ5Jdzc3"
+#url = "https://vplink.in/XQ5Jdzc3"
 
 async def vplink(url: str, domain: str = "https://vplink.in/", ref: str = "https://kaomojihub.com/", sltime: int = 5) -> str:
     """
