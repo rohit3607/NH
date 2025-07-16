@@ -1,72 +1,84 @@
-import time
-import cloudscraper
+import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
+from time import sleep
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 class DDLException(Exception):
     pass
 
-def transcript(url: str, DOMAIN: str, ref: str, sltime: int, proxy: str = None) -> str:
+def transcript(url: str, DOMAIN: str, ref: str, sltime: int = 7) -> str:
     code = url.rstrip("/").split("/")[-1]
-    scraper = cloudscraper.create_scraper()
-    if proxy:
-        scraper.proxies.update({"http": proxy, "https": proxy})
+    full_url = f"{DOMAIN}/{code}"
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
-                      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        'Referer': ref
-    }
-
-    # Step 1: GET page
-    res = scraper.get(f"{DOMAIN}/{code}", headers=headers, timeout=15)
-    if "Just a moment" in res.text:
-        raise DDLException("❌ Cloudflare protection detected. Try another proxy or wait.")
-
-    # Step 2: Extract form data
-    soup = BeautifulSoup(res.text, "html.parser")
-    data = {inp['name']: inp['value'] for inp in soup.find_all('input')
-            if inp.get('name') and inp.get('value')}
-
-    if not data:
-        raise DDLException("❌ No form data found. Page may have changed.")
-
-    # Step 3: Wait to simulate user delay
-    time.sleep(sltime)
-
-    # Step 4: POST to get final link
-    post_resp = scraper.post(
-        f"{DOMAIN}/links/go",
-        headers={
-            'Referer': f"{DOMAIN}/{code}",
-            'X-Requested-With': 'XMLHttpRequest',
-            'User-Agent': headers['User-Agent']
-        },
-        data=data,
-        timeout=15
-    )
+    options = uc.ChromeOptions()
+    options.headless = True
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument(f"user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
 
     try:
-        json_data = post_resp.json()
-    except Exception:
-        raise DDLException("❌ Failed to parse JSON. Response was unexpected.")
+        driver = uc.Chrome(options=options)
 
-    if 'url' in json_data and json_data['url'].strip():
-        return json_data['url']
-    else:
-        raise DDLException(f"❌ Link Extraction Failed. Response JSON: {json_data}")
+        # Step 1: Open main page
+        driver.get(full_url)
+        sleep(2)
+
+        if "Just a moment..." in driver.title:
+            raise DDLException("Unable to bypass Cloudflare protection")
+
+        # Step 2: Parse hidden form
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        inputs = soup.find_all("input")
+        data = {i.get("name"): i.get("value") for i in inputs if i.get("name") and i.get("value")}
+
+        # Step 3: Sleep (wait for required delay)
+        sleep(sltime)
+
+        # Step 4: Submit form manually using JS
+        js_script = f"""
+        fetch('{DOMAIN}/links/go', {{
+            method: 'POST',
+            headers: {{
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': '{full_url}'
+            }},
+            body: new URLSearchParams({data})
+        }}).then(res => res.json()).then(res => {{
+            document.body.innerHTML = '<a id="result" href="' + res.url + '">Final Link</a>';
+        }}).catch(err => {{
+            document.body.innerHTML = '<div id="result">Failed</div>';
+        }});
+        """
+        driver.execute_script(js_script)
+        sleep(3)
+
+        try:
+            element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "result"))
+            )
+            result = element.get_attribute("href")
+        except:
+            raise DDLException("Link Extraction Failed")
+
+        driver.quit()
+        return result
+
+    except Exception as e:
+        raise DDLException(f"❌ Error: {e}")
 
 if __name__ == "__main__":
     try:
-        # 📌 Replace with your own working proxy, or set to None to skip proxy
-        proxy = "http://156.242.46.69:3129"  # Example public Indian proxy
-
-        direct_link = transcript(
+        final_link = transcript(
             url="https://vplink.in/UNqtJ1lP",
             DOMAIN="https://vplink.in",
-            ref="https://kaomojihub.com/",
-            sltime=7,
-            proxy=proxy
+            ref="https://kaomojihub.com",
+            sltime=7
         )
-        print("✅ Final Link:", direct_link)
+        print(f"✅ Final Link: {final_link}")
     except DDLException as e:
         print(str(e))
