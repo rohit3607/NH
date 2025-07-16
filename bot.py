@@ -9,6 +9,7 @@ BUTTON_SELECTORS = [
     'text=Go To Link'
 ]
 
+
 async def bypass_vplink(url: str):
     print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
@@ -32,35 +33,21 @@ async def bypass_vplink(url: str):
             retry_count = 0
             max_retries = 3
             clicked = False
+            special_dual_tap_clicked = False
 
             while retry_count < max_retries and not clicked:
                 buttons = await page.locator("button, a").all()
 
-                for button in buttons:
+                for i, button in enumerate(buttons):
                     try:
                         text = (await button.inner_text()).strip().upper()
 
-                        # Handle Dual Tap / Click Here logic in step 2
-                        if step == 2 and text in ["DUAL TAP TO \"GO TO LINK\"", "CLICK HERE"]:
-                            print(f"[STEP 2] Clicking: {text}")
+                        if step == 2 and any(key in text for key in ["DUAL TAP", "CLICK HERE"]):
+                            print(f"[INFO] Step 2 Special Button Found: {text}")
                             await button.scroll_into_view_if_needed()
                             await button.click(timeout=10000)
-                            await page.wait_for_timeout(5000)
-
-                            # Try finding the same button again and click
-                            buttons2 = await page.locator("button, a").all()
-                            for b2 in buttons2:
-                                try:
-                                    t2 = (await b2.inner_text()).strip().upper()
-                                    if t2 == text:
-                                        print(f"[STEP 2] Clicking again: {t2}")
-                                        await b2.scroll_into_view_if_needed()
-                                        await b2.click(timeout=10000)
-                                        clicked = True
-                                        await page.wait_for_timeout(5000)
-                                        break
-                                except:
-                                    continue
+                            special_dual_tap_clicked = True
+                            clicked = True
                             break
 
                         elif text in ["CONTINUE", "GET LINK", "GO TO LINK"]:
@@ -68,18 +55,8 @@ async def bypass_vplink(url: str):
                             await button.scroll_into_view_if_needed()
                             await button.click(timeout=10000)
                             clicked = True
-
-                            # Wait based on step (approx delays after each button)
-                            if text == "GET LINK":
-                                await page.wait_for_timeout(3000)
-                            elif step == 2:
-                                await page.wait_for_timeout(5000)
-                            elif step == 3:
-                                await page.wait_for_timeout(5000)
-                            elif step == 4:
-                                await page.wait_for_timeout(10000)
                             break
-                    except Exception:
+                    except:
                         continue
 
                 if not clicked:
@@ -90,6 +67,24 @@ async def bypass_vplink(url: str):
             if not clicked:
                 print("[ERROR] Could not click button after retries. Ending.")
                 break
+
+            if special_dual_tap_clicked:
+                print("[INFO] Waiting 5s after clicking Dual Tap...")
+                await page.wait_for_timeout(5000)
+
+                # After waiting, find new button that appears (bottom of page)
+                new_buttons = await page.locator("button, a").all()
+                for btn in reversed(new_buttons):  # Start from bottom
+                    try:
+                        text = (await btn.inner_text()).strip().upper()
+                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE", "DUAL TAP"]):
+                            print(f"[INFO] Clicking newly appeared button: {text}")
+                            await btn.scroll_into_view_if_needed()
+                            await btn.click(timeout=10000)
+                            await page.wait_for_timeout(5000)
+                            break
+                    except:
+                        continue
 
             await page.wait_for_timeout(2000)
 
