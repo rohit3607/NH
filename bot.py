@@ -1,76 +1,51 @@
-import undetected_chromedriver as uc
+import cloudscraper
 from bs4 import BeautifulSoup
-from time import sleep
-import logging
-
-logging.basicConfig(level=logging.INFO)
+from aiohttp import ClientSession
+from asyncio import run, sleep
 
 class DDLException(Exception):
     pass
 
-def transcript_with_chrome(url: str, DOMAIN: str, ref: str, sltime: int = 7) -> str:
+async def transcript(url: str, DOMAIN: str, ref: str, sltime: int) -> str:
     code = url.rstrip("/").split("/")[-1]
-    full_url = f"{DOMAIN}/{code}"
-    logging.info(f"[1] Loading: {full_url}")
-
-    options = uc.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument(f"--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
-
-    driver = uc.Chrome(options=options, use_subprocess=True)
+    useragent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
     
-    try:
-        driver.get(full_url)
-        sleep(3)
-        html = driver.page_source
+    # Step 1: Use cloudscraper to bypass Cloudflare and get cookies + headers
+    scraper = cloudscraper.create_scraper(browser='chrome')
+    full_url = f"{DOMAIN}/{code}"
+    res = scraper.get(full_url)
+    if 'Just a moment' in res.text:
+        raise DDLException("Unable To Bypass Due To Cloudflare Protection")
+    
+    soup = BeautifulSoup(res.text, "html.parser")
+    cookies_dict = scraper.cookies.get_dict()
+    headers_dict = {
+        'User-Agent': useragent,
+        'Referer': ref,
+        'X-Requested-With': 'XMLHttpRequest'
+    }
 
-        soup = BeautifulSoup(html, "html.parser")
+    data = {
+        inp.get('name'): inp.get('value') 
+        for inp in soup.find_all('input') 
+        if inp.get('name') and inp.get('value')
+    }
 
-        if soup.title and 'Just a moment' in soup.title.text:
-            raise DDLException("❌ Cloudflare challenge still present.")
+    await sleep(sltime)
 
-        form = soup.find("form")
-        if not form:
-            raise DDLException("❌ Form not found on page")
+    # Step 2: Use aiohttp for final POST request with cookies and headers from cloudscraper
+    async with ClientSession(cookies=cookies_dict, headers=headers_dict) as session:
+        async with session.post(f"{DOMAIN}/links/go", data=data) as resp:
+            try:
+                if 'application/json' in resp.headers.get('Content-Type', ''):
+                    return (await resp.json())['url']
+                else:
+                    raise DDLException("Unexpected Response Content")
+            except Exception as e:
+                raise DDLException(f"Link Extraction Failed: {str(e)}")
 
-        data = {}
-        for inp in form.find_all("input"):
-            if inp.get("name") and inp.get("value"):
-                data[inp["name"]] = inp["value"]
+async def main():
+    link = await transcript("https://vplink.in/UNqtJ1lP", "https://vplink.in", "https://kaomojihub.com/", 7)
+    print(link)
 
-        logging.info(f"[2] Extracted form data: {data}")
-        sleep(sltime)
-
-        driver.execute_script("""
-            document.querySelector('form').submit();
-        """)
-        sleep(3)
-
-        final_html = driver.page_source
-        soup = BeautifulSoup(final_html, "html.parser")
-        a_tag = soup.find("a", string="Click here to download")
-
-        if a_tag and a_tag.get("href"):
-            logging.info("✅ Final link extracted successfully.")
-            return a_tag["href"]
-        else:
-            raise DDLException("❌ Failed to find final download link")
-
-    finally:
-        driver.quit()
-
-# Run it like normal
-if __name__ == "__main__":
-    try:
-        link = transcript_with_chrome(
-            "https://vplink.in/UNqtJ1lP",
-            "https://vplink.in",
-            "https://kaomojihub.com",
-            sltime=7
-        )
-        print(f"✅ Final Link:\n{link}")
-    except DDLException as e:
-        print(f"❌ Error: {e}")
+run(main())
