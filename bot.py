@@ -1,60 +1,49 @@
-import time
-import cloudscraper
-from bs4 import BeautifulSoup
+import asyncio
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
-class DDLException(Exception):
-    pass
+async def resolve_final_url(start_url: str, wait_for_button_texts=None, timeout: int = 15000) -> str:
+    if wait_for_button_texts is None:
+        wait_for_button_texts = ["Get Link", "Download", "Click here", "Continue", "Generate Link"]
 
-def transcript(url: str, DOMAIN: str, ref: str, sltime: int = 7) -> str:
-    code = url.rstrip("/").split("/")[-1]
-    scraper = cloudscraper.create_scraper()
-    useragent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' \
-                'AppleWebKit/537.36 (KHTML, like Gecko) ' \
-                'Chrome/125.0.0.0 Safari/537.36'
-    scraper.headers.update({'User-Agent': useragent, 'Referer': ref})
+    print(f"[INFO] Launching browser to resolve: {start_url}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context()
+        page = await context.new_page()
 
-    print("[STEP 1] GET initial page...")
-    resp = scraper.get(f"{DOMAIN}/{code}")
-    html = resp.text
+        try:
+            await page.goto(start_url, timeout=timeout)
+            print(f"[INFO] Initial page loaded: {page.url}")
 
-    if 'Just a moment' in html:
-        raise DDLException("❌ Cloudflare protection triggered")
+            # Wait for any button text
+            for button_text in wait_for_button_texts:
+                try:
+                    print(f"[INFO] Looking for button with text: {button_text}")
+                    button = await page.wait_for_selector(f'text="{button_text}"', timeout=3000)
+                    if button:
+                        print(f"[INFO] Clicking button: {button_text}")
+                        await button.click()
+                        await page.wait_for_timeout(3000)  # let page load
+                except PlaywrightTimeoutError:
+                    continue  # try next button
 
-    soup = BeautifulSoup(html, "html.parser")
-    data = {inp['name']: inp['value']
-            for inp in soup.find_all('input')
-            if inp.get('name') and inp.get('value')}
+            # Wait for potential navigation/redirect
+            await page.wait_for_load_state("networkidle", timeout=10000)
 
-    if not data:
-        raise DDLException("❌ Form fields not found; page may have changed")
+            # Try to get current page's URL
+            final_url = page.url
+            print(f"[SUCCESS] Final Resolved URL: {final_url}")
+            return final_url
 
-    print(f"[STEP 2] Waiting {sltime}s to mimic user interaction...")
-    time.sleep(sltime)
+        except Exception as e:
+            print(f"[ERROR] Failed to extract link: {e}")
+            raise
 
-    print("[STEP 3] Posting to obtain final link...")
-    resp2 = scraper.post(
-        f"{DOMAIN}/links/go",
-        data=data,
-        headers={'X-Requested-With': 'XMLHttpRequest', 'Referer': f"{DOMAIN}/{code}"}
-    )
+        finally:
+            await browser.close()
 
-    try:
-        json_data = resp2.json()
-    except Exception:
-        raise DDLException(f"❌ JSON parse failed: {resp2.text[:200]}...")
-
-    if 'url' in json_data and json_data['url']:
-        return json_data['url']
-    raise DDLException(f"❌ Link not found in JSON: {json_data}")
-
+# For testing
 if __name__ == "__main__":
-    try:
-        link = transcript(
-            url="https://vplink.in/UNqtJ1lP",
-            DOMAIN="https://vplink.in",
-            ref="https://kaomojihub.com/",
-            sltime=7
-        )
-        print("✅ Final Link:", link)
-    except DDLException as e:
-        print("❌ Error:", e)
+    test_url = "https://vplink.in/UNqtJ1lP"  # Replace with your link
+    resolved = asyncio.run(resolve_final_url(test_url))
+    print(f"\n✅ Final Link: {resolved}")
