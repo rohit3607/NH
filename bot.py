@@ -1,86 +1,83 @@
-import asyncio
 import sys
+import asyncio
 from playwright.async_api import async_playwright
 
-async def solve_vplink(url: str):
-    print(f"[INFO] Navigating to: {url}")
+async def bypass_vplink(url):
+    print(f"[INFO] Navigating to: {url]")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
+        page = await browser.new_page()
+        await page.goto(url)
 
-        await page.goto(url, wait_until="domcontentloaded")
-        current_url = page.url
         last_url = ""
         step = 1
+        seen_urls = set()
 
-        try:
-            while True:
-                print(f"[STEP {step}] Current URL: {current_url}")
+        while True:
+            current_url = page.url
+            print(f"[STEP {step}] Current URL: {current_url}")
 
-                # Exit if on final domain (vplink.in)
-                if "vplink.in" in current_url and "get" in (await page.content()).lower():
-                    print("[INFO] Final VPLINK page detected.")
-                    await page.wait_for_timeout(5000)  # 5 sec wait
-                    get_link = await page.query_selector('a:has-text("GET LINK")')
-                    if get_link:
-                        final_url = await get_link.get_attribute("href")
-                        print(f"✅ Final URL: {final_url}")
-                        await browser.close()
-                        return final_url
-                    else:
-                        print("❌ GET LINK button not found.")
-                        break
+            # Avoid looping on same URL
+            if current_url in seen_urls:
+                print("❌  Stuck in loop. Aborting.")
+                break
+            seen_urls.add(current_url)
 
-                # STEP 1: Initial Continue button
-                btn = await page.query_selector('button:has-text("CONTINUE"), a:has-text("CONTINUE")')
-                if btn:
-                    print(f"[INFO] Found button: CONTINUE")
-                    await btn.click()
-                    await page.wait_for_timeout(3000)
-                elif "step2" not in locals():  # STEP 2: dual click logic
-                    print("[STEP 2] Waiting 15s for button...")
-                    await page.wait_for_timeout(15000)
-                    dual_btn = await page.query_selector('button, a')
-                    if dual_btn:
-                        print("[STEP 2] Dual clicking...")
-                        await dual_btn.click()
-                        await page.wait_for_timeout(2000)
-                        await dual_btn.click()
-                    step2 = True
-                elif "step3" not in locals():  # STEP 3: wait 10s + continue
-                    print("[STEP 3] Waiting 10s for next continue...")
-                    await page.wait_for_timeout(10000)
-                    cont_btn = await page.query_selector('button:has-text("CONTINUE"), a:has-text("CONTINUE")')
-                    if cont_btn:
-                        print("[STEP 3] Clicking CONTINUE...")
-                        await cont_btn.click()
-                    step3 = True
+            # Final step: official vplink.in domain
+            if "vplink.in" in current_url and "/go/" not in current_url:
+                print("[INFO] Waiting 5s for final Get Link button...")
+                await page.wait_for_timeout(5000)
+                try:
+                    btn = await page.wait_for_selector("a#generate", timeout=10000)
+                    final = await btn.get_attribute("href")
+                    print(f"✅ Final URL: {final}")
+                except:
+                    print("❌ Could not find final Get Link button.")
+                break
+
+            # First Page: Wait 15s before clicking Continue
+            if step == 1:
+                print("[INFO] Waiting 15s before clicking first CONTINUE...")
+                await page.wait_for_timeout(15000)
+
+            # Click the "Continue" button if available
+            try:
+                button = await page.query_selector("a:has-text('Continue')")
+                if button:
+                    print("[INFO] Found button: CONTINUE")
+                    await button.click()
                 else:
-                    print("[INFO] Trying fallback button search...")
-                    any_btn = await page.query_selector('button, a')
-                    if any_btn:
-                        await any_btn.click()
-
-                # Detect if stuck in same page
-                await page.wait_for_timeout(3000)
-                new_url = page.url
-                if new_url == current_url:
-                    print("[WARN] URL did not change, avoiding infinite loop.")
+                    print("[WARN] Couldn't click continue button.")
                     break
-                current_url = new_url
-                step += 1
+            except:
+                print("[WARN] Error clicking continue.")
+                break
 
-        except Exception as e:
-            print(f"❌ Error: {e}")
+            # Second page (double tap logic)
+            if step == 2:
+                print("[INFO] Double tap logic with 5s delay...")
+                await page.wait_for_timeout(5000)
+                for _ in range(2):
+                    try:
+                        button = await page.query_selector("a:has-text('Continue')")
+                        if button:
+                            await button.click()
+                            await page.wait_for_timeout(1000)
+                    except:
+                        pass
+
+            # Third page: wait 10 seconds
+            if step == 3:
+                print("[INFO] Waiting 10s before clicking Continue...")
+                await page.wait_for_timeout(10000)
+
+            await page.wait_for_timeout(3000)
+            step += 1
 
         await browser.close()
-        return None
-
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-        asyncio.run(solve_vplink(url))
-    else:
+    if len(sys.argv) != 2:
         print("Usage: python3 bot.py <vplink_url>")
+    else:
+        asyncio.run(bypass_vplink(sys.argv[1]))
