@@ -105,7 +105,7 @@ async def bypass_command(_, message: Message):
         return await message.reply("❌ Please reply to a valid VP shortlink.")
 
     url = replied.text.strip()
-    if not url.startswith("https://vp."):
+    if not url.startswith("https://vplink"):
         return await message.reply("❌ This doesn't seem to be a valid VP link.")
 
     await message.reply("🔄 Bypassing the link...")
