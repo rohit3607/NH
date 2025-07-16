@@ -58,7 +58,7 @@ def transcript(url: str, DOMAIN: str, ref: str, sltime: int, proxy: str = None) 
 if __name__ == "__main__":
     try:
         # 📌 Replace with your own working proxy, or set to None to skip proxy
-        proxy = "http://103.47.93.248:8080"  # Example public Indian proxy
+        proxy = "http://139.59.1.14:3128"  # Example public Indian proxy
 
         direct_link = transcript(
             url="https://vplink.in/UNqtJ1lP",
