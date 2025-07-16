@@ -78,6 +78,6 @@ async def bypass_vplink(url):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 bot.py <vplink_url>")
+        print("Usage: python3 bypass.py <vplink_url>")
     else:
         asyncio.run(bypass_vplink(sys.argv[1]))
