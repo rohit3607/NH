@@ -1,73 +1,71 @@
 import asyncio
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
-from urllib.parse import urlparse
-import logging
+from playwright.async_api import async_playwright
+import time
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+START_URL = "https://vplink.in/aUMMULUS"  # Change this URL as needed
 
+BUTTON_TEXTS = [
+    "Get Link",
+    "Download",
+    "Click here",
+    "Continue",
+    "Generate Link"
+]
 
-async def bypass_shortlink(url: str):
+async def solve_vplink(url):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
 
-        logging.info(f"Resolving: {url}")
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        except PlaywrightTimeoutError:
-            raise Exception("Initial page load timeout.")
+        print(f"[INFO] Navigating to: {url}")
+        await page.goto(url, wait_until="domcontentloaded")
 
-        logging.info(f"Initial page loaded: {page.url}")
-
-        visited_urls = set()
-        max_steps = 5
+        step = 0
         final_url = None
 
-        # Try up to 5 button-click-redirect steps
-        for _ in range(max_steps):
+        while True:
+            step += 1
+            print(f"[STEP {step}] Current URL: {page.url}")
+
+            # Wait if there's a delay before showing the button
+            await page.wait_for_timeout(1000)
+
             found = False
-            for button_text in ["Get Link", "Download", "Click here", "Continue", "Generate Link"]:
+            for btn_text in BUTTON_TEXTS:
                 try:
-                    button = await page.wait_for_selector(f"text={button_text}", timeout=3000)
-                    if button:
-                        logging.info(f"Looking for button with text: {button_text}")
-                        await button.click()
-                        await page.wait_for_timeout(3000)  # wait for redirect/load
-                        await page.wait_for_load_state("domcontentloaded", timeout=10000)
-                        new_url = page.url
-                        if new_url not in visited_urls:
-                            visited_urls.add(new_url)
-                            logging.info(f"Redirected to: {new_url}")
-                            if new_url.startswith("http") and new_url != url:
-                                final_url = new_url
-                        found = True
-                        break
-                except PlaywrightTimeoutError:
-                    continue
-                except Exception:
+                    btn = await page.query_selector(f'text="{btn_text}"')
+                    if btn:
+                        print(f"[INFO] Found button: {btn_text}")
+                        if btn_text.lower() == "get link":
+                            print("[INFO] Waiting 5 seconds before clicking final Get Link...")
+                            await page.wait_for_timeout(5000)
+                            href = await btn.get_attribute("href")
+                            if href:
+                                final_url = href
+                                print(f"[SUCCESS] Final Resolved URL: {final_url}")
+                                break
+                        else:
+                            await btn.click()
+                            await page.wait_for_load_state("domcontentloaded")
+                            found = True
+                            break
+                except Exception as e:
                     continue
 
+            if final_url:
+                break
+
             if not found:
+                print("[WARN] No clickable buttons found on this step. Ending.")
                 break
 
         await browser.close()
 
         if final_url:
-            logging.info(f"[SUCCESS] Final Resolved URL: {final_url}")
-            return final_url
+            print(f"✅  Final Link: {final_url}")
         else:
-            raise Exception("Could not bypass the link successfully.")
-
-
-async def main():
-    url = "https://vplink.in/UNqtJ1lP"  # Replace with any default URL you want
-    try:
-        final = await bypass_shortlink(url)
-        print(f"\n✅  Final Link: {final}")
-    except Exception as e:
-        print(f"\n❌  Error: {e}")
-
+            print("❌  Failed to resolve final link.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(solve_vplink(START_URL))
