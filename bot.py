@@ -1,72 +1,72 @@
+import time
 import cloudscraper
 from bs4 import BeautifulSoup
-import time
 
 class DDLException(Exception):
     pass
 
-def transcript(url: str, DOMAIN: str, ref: str, sltime: int) -> str:
+def transcript(url: str, DOMAIN: str, ref: str, sltime: int, proxy: str = None) -> str:
     code = url.rstrip("/").split("/")[-1]
-    useragent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
-    scraper = cloudscraper.create_scraper(
-        browser={'browser': 'chrome', 'platform': 'android', 'mobile': True}
-    )
+    scraper = cloudscraper.create_scraper()
+    if proxy:
+        scraper.proxies.update({"http": proxy, "https": proxy})
 
     headers = {
-        'User-Agent': useragent,
-        'Referer': ref,
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Referer': ref
     }
 
-    # Step 1: Initial GET
-    res = scraper.get(f"{DOMAIN}/{code}", headers=headers)
-    html = res.text
-
-    soup = BeautifulSoup(html, "html.parser")
-    title_tag = soup.find("title")
-
-    if title_tag and "Just a moment" in title_tag.text:
-        raise DDLException("Unable to bypass due to Cloudflare")
+    # Step 1: GET page
+    res = scraper.get(f"{DOMAIN}/{code}", headers=headers, timeout=15)
+    if "Just a moment" in res.text:
+        raise DDLException("❌ Cloudflare protection detected. Try another proxy or wait.")
 
     # Step 2: Extract form data
-    data = {
-        inp.get('name'): inp.get('value')
-        for inp in soup.find_all('input')
-        if inp.get('name') and inp.get('value')
-    }
+    soup = BeautifulSoup(res.text, "html.parser")
+    data = {inp['name']: inp['value'] for inp in soup.find_all('input')
+            if inp.get('name') and inp.get('value')}
 
     if not data:
-        raise DDLException("No form data found in page.")
+        raise DDLException("❌ No form data found. Page may have changed.")
 
-    # Step 3: Wait before POST
+    # Step 3: Wait to simulate user delay
     time.sleep(sltime)
 
-    # Step 4: POST to /links/go
-    post_headers = {
-        'User-Agent': useragent,
-        'Referer': f"{DOMAIN}/{code}",
-        'X-Requested-With': 'XMLHttpRequest',
-    }
-
-    resp = scraper.post(f"{DOMAIN}/links/go", data=data, headers=post_headers)
+    # Step 4: POST to get final link
+    post_resp = scraper.post(
+        f"{DOMAIN}/links/go",
+        headers={
+            'Referer': f"{DOMAIN}/{code}",
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': headers['User-Agent']
+        },
+        data=data,
+        timeout=15
+    )
 
     try:
-        json_data = resp.json()
-        if 'url' not in json_data:
-            raise DDLException(f"No 'url' in response: {json_data}")
-        return json_data['url']
-    except Exception as e:
-        raise DDLException(f"Link Extraction Failed: {e}")
+        json_data = post_resp.json()
+    except Exception:
+        raise DDLException("❌ Failed to parse JSON. Response was unexpected.")
 
-# Example usage
+    if 'url' in json_data and json_data['url'].strip():
+        return json_data['url']
+    else:
+        raise DDLException(f"❌ Link Extraction Failed. Response JSON: {json_data}")
+
 if __name__ == "__main__":
     try:
-        final_link = transcript(
+        # 📌 Replace with your own working proxy, or set to None to skip proxy
+        proxy = "http://103.47.93.248:8080"  # Example public Indian proxy
+
+        direct_link = transcript(
             url="https://vplink.in/UNqtJ1lP",
             DOMAIN="https://vplink.in",
             ref="https://kaomojihub.com/",
-            sltime=7
+            sltime=7,
+            proxy=proxy
         )
-        print("✅ Final Link:", final_link)
+        print("✅ Final Link:", direct_link)
     except DDLException as e:
-        print(f"❌  Error: {e}")
+        print(str(e))
