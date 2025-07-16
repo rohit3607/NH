@@ -3,7 +3,7 @@ import asyncio
 from playwright.async_api import async_playwright
 
 async def bypass_vplink(url):
-    print(f"[INFO] Navigating to: {url]")
+    print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
@@ -78,6 +78,6 @@ async def bypass_vplink(url):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 bypass.py <vplink_url>")
+        print("Usage: python3 bot.py <vplink_url>")
     else:
         asyncio.run(bypass_vplink(sys.argv[1]))
