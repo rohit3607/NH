@@ -22,7 +22,7 @@ async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None)
         async with session.get(
             f"{DOMAIN}/{code}", 
             headers={'Referer': ref, 'User-Agent': useragent},
-            proxy="https://152.53.171.124:3128"  # <-- proxy used here
+            proxy="https://163.227.154.246:8080"  # <-- proxy used here
         ) as res:
             html = await res.text()
             cookies = res.cookies
