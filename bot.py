@@ -2,82 +2,72 @@ import sys
 import asyncio
 from playwright.async_api import async_playwright
 
-async def bypass_vplink(url):
+async def bypass_vplink(url: str):
     print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto(url)
+        context = await browser.new_context()
+        page = await context.new_page()
+        await page.goto(url, timeout=60000)
 
-        last_url = ""
         step = 1
-        seen_urls = set()
+        first_page = True
 
         while True:
-            current_url = page.url
-            print(f"[STEP {step}] Current URL: {current_url}")
+            print(f"[STEP {step}] Current URL: {page.url}")
+            await page.wait_for_timeout(1000)
 
-            # Avoid looping on same URL
-            if current_url in seen_urls:
-                print("❌  Stuck in loop. Aborting.")
-                break
-            seen_urls.add(current_url)
-
-            # Final step: official vplink.in domain
-            if "vplink.in" in current_url and "/go/" not in current_url:
-                print("[INFO] Waiting 5s for final Get Link button...")
-                await page.wait_for_timeout(5000)
-                try:
-                    btn = await page.wait_for_selector("a#generate", timeout=10000)
-                    final = await btn.get_attribute("href")
-                    print(f"✅ Final URL: {final}")
-                except:
-                    print("❌ Could not find final Get Link button.")
-                break
-
-            # First Page: Wait 15s before clicking Continue
-            if step == 1:
+            # Wait 15s only on the first page before any click
+            if first_page:
                 print("[INFO] Waiting 15s before clicking first CONTINUE...")
                 await page.wait_for_timeout(15000)
+                first_page = False
 
-            # Click the "Continue" button if available
-            try:
-                button = await page.query_selector("a:has-text('Continue')")
-                if button:
-                    print("[INFO] Found button: CONTINUE")
-                    await button.click()
-                else:
-                    print("[WARN] Couldn't click continue button.")
-                    break
-            except:
-                print("[WARN] Error clicking continue.")
+            buttons = await page.locator("button, a").all()
+            clicked = False
+
+            for button in buttons:
+                try:
+                    text = (await button.inner_text()).strip().upper()
+                    if text in ["CONTINUE", "GET LINK"]:
+                        print(f"[INFO] Found button: {text}")
+                        await button.scroll_into_view_if_needed()
+                        await button.click(timeout=10000)
+                        clicked = True
+
+                        # Wait based on step (for known flow)
+                        if text == "GET LINK":
+                            await page.wait_for_timeout(3000)
+                        elif step == 2:
+                            await page.wait_for_timeout(5000)  # wait 5s after first CONTINUE
+                        elif step == 3:
+                            await page.wait_for_timeout(5000)
+                        elif step == 4:
+                            await page.wait_for_timeout(10000)
+                        break
+                except Exception as e:
+                    continue
+
+            if not clicked:
+                print("[WARN] No clickable buttons found on this step. Ending.")
                 break
 
-            # Second page (double tap logic)
-            if step == 2:
-                print("[INFO] Double tap logic with 5s delay...")
-                await page.wait_for_timeout(5000)
-                for _ in range(2):
-                    try:
-                        button = await page.query_selector("a:has-text('Continue')")
-                        if button:
-                            await button.click()
-                            await page.wait_for_timeout(1000)
-                    except:
-                        pass
+            # Wait a moment after click
+            await page.wait_for_timeout(2000)
 
-            # Third page: wait 10 seconds
-            if step == 3:
-                print("[INFO] Waiting 10s before clicking Continue...")
-                await page.wait_for_timeout(10000)
+            # Check if on vplink final domain
+            if "vplink.in" in page.url and "go" in page.url:
+                print(f"[SUCCESS] Final Link: {page.url}")
+                break
 
-            await page.wait_for_timeout(3000)
             step += 1
 
         await browser.close()
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 bot.py <vplink_url>")
-    else:
-        asyncio.run(bypass_vplink(sys.argv[1]))
+        print("Usage: python3 bypass.py <vplink_url>")
+        sys.exit(1)
+
+    link = sys.argv[1]
+    asyncio.run(bypass_vplink(link))
