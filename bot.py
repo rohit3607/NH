@@ -21,7 +21,7 @@ async def wait_and_click(page, button_text, timeout=30):
 
 async def run(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         print(f"[INFO] Navigating to: {url}")
         await page.goto(url, timeout=60000)
