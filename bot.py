@@ -1,79 +1,89 @@
-import sys
 import asyncio
 from playwright.async_api import async_playwright
+import time
 
-async def bypass_vplink(url: str):
-    print(f"[INFO] Navigating to: {url}")
+BUTTON_SELECTORS = [
+    'text=CONTINUE',
+    'text="Dual Tap To \\"Go To Link\\""',
+    'text="Click here"',
+    'text=Go To Link'
+]
+
+async def click_with_retry(page, selector, retries=3, wait=10):
+    for attempt in range(1, retries + 1):
+        try:
+            btn = await page.wait_for_selector(selector, timeout=10000)
+            await btn.scroll_into_view_if_needed()
+            await btn.click()
+            print(f"[INFO] Clicked button: {selector}")
+            return True
+        except Exception:
+            print(f"[WARN] Button not clickable or not found. Retrying in {wait}s... (Retry {attempt}/{retries})")
+            await asyncio.sleep(wait)
+    print("[ERROR] Could not click button after retries. Ending.")
+    return False
+
+async def bypass_redirect(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=False)
         context = await browser.new_context()
         page = await context.new_page()
-        await page.goto(url, timeout=60000)
 
+        print(f"[INFO] Navigating to: {url}")
+        await page.goto(url, wait_until="domcontentloaded")
         step = 1
-        first_page = True
 
         while True:
-            print(f"[STEP {step}] Current URL: {page.url}")
-            await page.wait_for_timeout(1000)
+            current_url = page.url
+            print(f"[STEP {step}] Current URL: {current_url}")
 
-            if first_page:
+            # First step wait
+            if step == 1:
                 print("[INFO] Waiting 15s before clicking first CONTINUE...")
-                await page.wait_for_timeout(15000)
-                first_page = False
+                await asyncio.sleep(15)
 
-            retry_count = 0
-            max_retries = 3
-            clicked = False
+                if not await click_with_retry(page, 'text=CONTINUE'):
+                    break
 
-            while retry_count < max_retries and not clicked:
-                buttons = await page.locator("button, a").all()
+            else:
+                # Wait 15s for popup ads to settle
+                print("[INFO] Waiting 15s before clicking any button...")
+                await asyncio.sleep(15)
 
-                for button in buttons:
+                # Try all known button selectors
+                clicked = False
+                for selector in BUTTON_SELECTORS:
                     try:
-                        text = (await button.inner_text()).strip().upper()
-                        if text in ["CONTINUE", "GET LINK"]:
-                            print(f"[INFO] Found button: {text}")
-                            await button.scroll_into_view_if_needed()
-                            await button.click(timeout=10000)
+                        btn = await page.query_selector(selector)
+                        if btn:
+                            print(f"[INFO] Found button: {await btn.inner_text()}")
+                            await btn.scroll_into_view_if_needed()
+                            await btn.click()
                             clicked = True
-
-                            # Wait based on step (approx delays after each button)
-                            if text == "GET LINK":
-                                await page.wait_for_timeout(3000)
-                            elif step == 2:
-                                await page.wait_for_timeout(5000)
-                            elif step == 3:
-                                await page.wait_for_timeout(5000)
-                            elif step == 4:
-                                await page.wait_for_timeout(10000)
                             break
-                    except Exception as e:
+                    except:
                         continue
 
                 if not clicked:
-                    retry_count += 1
-                    print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
-                    await page.wait_for_timeout(10000)
+                    print("[WARN] No known button found. Retrying in 10s...")
+                    await asyncio.sleep(10)
+                    continue
 
-            if not clicked:
-                print("[ERROR] Could not click button after retries. Ending.")
-                break
-
-            await page.wait_for_timeout(2000)
-
-            if "vplink.in" in page.url and "go" in page.url:
-                print(f"[SUCCESS] Final Link: {page.url}")
-                break
+            await page.wait_for_timeout(5000)  # Wait 5s after click
+            if page.url == current_url:
+                print("[WARN] URL didn't change. Retrying step...")
+                continue
 
             step += 1
 
+            # Break on external redirect (non-intermediate page)
+            if not any(domain in page.url for domain in ['movieverse.life', 'kaomojihub.com', 'sudyon']):
+                print(f"[✅ SUCCESS] Final URL: {page.url}")
+                break
+
         await browser.close()
 
+# Run this
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python3 bypass.py <vplink_url>")
-        sys.exit(1)
-
-    link = sys.argv[1]
-    asyncio.run(bypass_vplink(link))
+    url = "https://vplink.in/aUMMULUS"  # replace with your actual input URL
+    asyncio.run(bypass_redirect(url))
