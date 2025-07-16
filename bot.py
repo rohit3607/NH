@@ -1,77 +1,105 @@
 import asyncio
 from playwright.async_api import async_playwright
+import time, sys
 
-async def wait_and_click(page, selector, timeout=30000):
-    try:
-        await page.wait_for_selector(selector, timeout=timeout)
-        await page.locator(selector).click()
-        print(f"[INFO] Clicked element: {selector}")
-    except Exception as e:
-        print(f"[ERROR] Failed to click {selector}: {e}")
+BUTTON_SELECTORS = [
+    'text=CONTINUE',
+    'text="Dual Tap To \\"Go To Link\\""',
+    'text="Click here"',
+    'text=Go To Link'
+]
 
-async def dismiss_consent_popup(page):
-    try:
-        # Try closing the consent overlay if it exists
-        overlay = page.locator("div.fc-consent-root, div.fc-dialog-overlay")
-        if await overlay.is_visible():
-            print("[INFO] Consent popup detected, trying to remove it...")
-            await page.evaluate("document.querySelector('div.fc-consent-root')?.remove()")
-            await page.evaluate("document.querySelector('div.fc-dialog-overlay')?.remove()")
-            print("[INFO] Consent popup removed.")
-    except Exception as e:
-        print(f"[WARN] Could not dismiss consent popup: {e}")
 
-async def run(url):
+async def bypass_vplink(url: str):
+    print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-        print(f"[STEP 1] Opening URL: {url}")
-        await page.goto(url)
+        context = await browser.new_context()
+        page = await context.new_page()
+        await page.goto(url, timeout=60000)
 
-        # Step 1: Wait 15 seconds
-        print("[INFO] Waiting 15s before clicking first CONTINUE...")
-        await asyncio.sleep(15)
+        step = 1
+        first_page = True
 
-        # Dismiss overlay blocking click
-        await dismiss_consent_popup(page)
+        while True:
+            print(f"[STEP {step}] Current URL: {page.url}")
+            await page.wait_for_timeout(1000)
 
-        # Click first "CONTINUE" button
-        await wait_and_click(page, 'text=CONTINUE')
+            if first_page:
+                print("[INFO] Waiting 15s before clicking first CONTINUE...")
+                await page.wait_for_timeout(15000)
+                first_page = False
 
-        # Step 2: Wait for the next page to load
-        print("[STEP 2] Waiting for Dual Tap button...")
-        await page.wait_for_selector("text=Dual Tap", timeout=10000)
-        buttons = await page.locator("text=Dual Tap").all()
-        if not buttons:
-            print("[ERROR] No Dual Tap buttons found.")
-            return
+            retry_count = 0
+            max_retries = 3
+            clicked = False
+            special_dual_tap_clicked = False
 
-        print("[INFO] Clicking first Dual Tap button...")
-        await buttons[0].click()
+            while retry_count < max_retries and not clicked:
+                buttons = await page.locator("button, a").all()
 
-        # Wait 5 seconds for the second button to appear
-        print("[INFO] Waiting 5s for second Dual Tap button to appear...")
-        await asyncio.sleep(5)
+                for i, button in enumerate(buttons):
+                    try:
+                        text = (await button.inner_text()).strip().upper()
 
-        # Locate the new button at the bottom
-        print("[INFO] Looking for new Dual Tap button...")
-        updated_buttons = await page.locator("text=Dual Tap").all()
-        if len(updated_buttons) > 1:
-            print("[INFO] Clicking second Dual Tap button (bottom one)...")
-            await updated_buttons[-1].click()
-        else:
-            print("[WARN] Only one Dual Tap button found, retrying...")
+                        if step == 2 and any(key in text for key in ["DUAL TAP", "CLICK HERE"]):
+                            print(f"[INFO] Step 2 Special Button Found: {text}")
+                            await button.scroll_into_view_if_needed()
+                            await button.click(timeout=10000)
+                            special_dual_tap_clicked = True
+                            clicked = True
+                            break
 
-        # Proceed as needed
-        print("[SUCCESS] Completed dual-tap flow.")
+                        elif text in ["CONTINUE", "GET LINK", "GO TO LINK"]:
+                            print(f"[INFO] Found button: {text}")
+                            await button.scroll_into_view_if_needed()
+                            await button.click(timeout=10000)
+                            clicked = True
+                            break
+                    except:
+                        continue
 
-        await asyncio.sleep(10)
+                if not clicked:
+                    retry_count += 1
+                    print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
+                    await page.wait_for_timeout(10000)
+
+            if not clicked:
+                print("[ERROR] Could not click button after retries. Ending.")
+                break
+
+            if special_dual_tap_clicked:
+                print("[INFO] Waiting 5s after clicking Dual Tap...")
+                await page.wait_for_timeout(5000)
+
+                # After waiting, find new button that appears (bottom of page)
+                new_buttons = await page.locator("button, a").all()
+                for btn in reversed(new_buttons):  # Start from bottom
+                    try:
+                        text = (await btn.inner_text()).strip().upper()
+                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE", "DUAL TAP"]):
+                            print(f"[INFO] Clicking newly appeared button: {text}")
+                            await btn.scroll_into_view_if_needed()
+                            await btn.click(timeout=10000)
+                            await page.wait_for_timeout(5000)
+                            break
+                    except:
+                        continue
+
+            await page.wait_for_timeout(2000)
+
+            if "vplink.in" in page.url and "go" in page.url:
+                print(f"[SUCCESS] Final Link: {page.url}")
+                break
+
+            step += 1
+
         await browser.close()
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-    else:
-        url = input("Enter URL: ")
-    asyncio.run(run(url))
+    if len(sys.argv) != 2:
+        print("Usage: python3 bypass.py <vplink_url>")
+        sys.exit(1)
+
+    link = sys.argv[1]
+    asyncio.run(bypass_vplink(link))
