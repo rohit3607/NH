@@ -2,8 +2,10 @@ import time
 import cloudscraper
 from bs4 import BeautifulSoup
 
+
 class DDLException(Exception):
     pass
+
 
 def transcript(url: str, DOMAIN: str, ref: str, sltime: int, proxy: str = None) -> str:
     code = url.rstrip("/").split("/")[-1]
@@ -14,72 +16,65 @@ def transcript(url: str, DOMAIN: str, ref: str, sltime: int, proxy: str = None) 
         "https": proxy
     } if proxy else None
 
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'custom': useragent
-        },
-        delay=10,
-        interpreter='nodejs',
-    )
-
-    # Step 1: GET initial page
-    res = scraper.get(f"{DOMAIN}/{code}", headers={"User-Agent": useragent}, proxies=proxies)
-    html = res.text
-
-    # Step 2: GET again with Referer
-    res = scraper.get(f"{DOMAIN}/{code}", headers={"Referer": ref, "User-Agent": useragent}, proxies=proxies)
-    html = res.text
-    cookies = res.cookies
-
-    # Step 3: Check if cloudflare block
-    soup = BeautifulSoup(html, "html.parser")
-    if soup.find("title") and soup.find("title").text.strip() == "Just a moment...":
-        raise DDLException("Cloudflare Protected. Try different proxy.")
-
-    # Step 4: Extract form data
-    data = {
-        inp.get('name'): inp.get('value') 
-        for inp in soup.find_all('input') 
-        if inp.get('name') and inp.get('value')
-    }
-
-    time.sleep(sltime)
-
-    # Step 5: POST to /links/go
-    headers = {
-        "Referer": f"{DOMAIN}/{code}",
-        "X-Requested-With": "XMLHttpRequest",
+    scraper = cloudscraper.create_scraper()
+    scraper.headers.update({
         "User-Agent": useragent
-    }
-
-    response = scraper.post(
-        f"{DOMAIN}/links/go",
-        data=data,
-        headers=headers,
-        cookies=cookies,
-        proxies=proxies
-    )
+    })
 
     try:
-        json_data = response.json()
-        if "url" in json_data:
-            return json_data["url"]
-        else:
-            raise DDLException(f"Unexpected response format: {json_data}")
-    except Exception as e:
-        raise DDLException(f"Link Extraction Failed: {e}")
+        # Step 1: GET page
+        res1 = scraper.get(f"{DOMAIN}/{code}", headers={"Referer": ref}, proxies=proxies)
+        soup = BeautifulSoup(res1.text, "html.parser")
 
-# Example usage
+        if soup.title and soup.title.string == "Just a moment...":
+            raise DDLException("Cloudflare protection active. Try again later or use a better proxy.")
+
+        data = {
+            inp.get('name'): inp.get('value')
+            for inp in soup.find_all('input')
+            if inp.get('name') and inp.get('value')
+        }
+
+        time.sleep(sltime)
+
+        # Step 2: POST to /links/go
+        res2 = scraper.post(
+            f"{DOMAIN}/links/go",
+            headers={
+                "Referer": f"{DOMAIN}/{code}",
+                "X-Requested-With": "XMLHttpRequest"
+            },
+            data=data,
+            proxies=proxies
+        )
+
+        if res2.headers.get("Content-Type", "").startswith("application/json"):
+            json_data = res2.json()
+            final_url = json_data.get("url")
+            if final_url:
+                return final_url
+            else:
+                raise DDLException("Link Extraction Failed: No 'url' in response")
+        else:
+            raise DDLException("Link Extraction Failed: Unexpected response format")
+
+    except Exception as e:
+        raise DDLException(str(e))
+
+
 if __name__ == "__main__":
     try:
-        proxy = "http://qbwkdsxg:bb7kcdf9n214@38.154.227.167:5868"  # Optional
-        final_link = transcript(
+        # You can leave proxy=None to try without proxy
+        proxy = None
+        # proxy = "http://user:pass@host:port"
+        final = transcript(
             url="https://vplink.in/UNqtJ1lP",
             DOMAIN="https://vplink.in",
             ref="https://kaomojihub.com/",
             sltime=7,
-            proxy=proxy  # Can be None
+            proxy=proxy
         )
-        print("✅ Final Link:", final_link)
+        print("✅ Final Link:", final)
+
     except DDLException as e:
         print("❌ Error:", e)
