@@ -17,8 +17,8 @@ from pyrogram.types import (
 )
 
 # ---------------- CONFIG ---------------- #
-from config import *  # Define APP_ID, API_HASH, TG_BOT_TOKEN, OWNER_ID, PORT, LOGGER, START_MSG, START_PIC
-from database import *  # Your database file
+from config import * 
+from database import * 
 
 # ---------------- WEB SERVER ---------------- #
 routes = web.RouteTableDef()
