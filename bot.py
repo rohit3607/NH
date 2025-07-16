@@ -1,71 +1,79 @@
 import asyncio
+import sys
 from playwright.async_api import async_playwright
-import time
 
-START_URL = "https://vplink.in/aUMMULUS"  # Change this URL as needed
-
-BUTTON_TEXTS = [
-    "Get Link",
-    "Download",
-    "Click here",
-    "Continue",
-    "Generate Link"
-]
-
-async def solve_vplink(url):
+async def resolve_vplink(url):
+    print(f"[INFO] Navigating to: {url}")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
 
-        print(f"[INFO] Navigating to: {url}")
-        await page.goto(url, wait_until="domcontentloaded")
-
-        step = 0
-        final_url = None
+        await page.goto(url, wait_until='domcontentloaded')
+        step = 1
 
         while True:
-            step += 1
             print(f"[STEP {step}] Current URL: {page.url}")
+            step += 1
 
-            # Wait if there's a delay before showing the button
-            await page.wait_for_timeout(1000)
-
-            found = False
-            for btn_text in BUTTON_TEXTS:
+            # Handle "Continue" or similar buttons
+            btn = await page.query_selector("text=Continue") or await page.query_selector("button")
+            if btn:
                 try:
-                    btn = await page.query_selector(f'text="{btn_text}"')
-                    if btn:
-                        print(f"[INFO] Found button: {btn_text}")
-                        if btn_text.lower() == "get link":
-                            print("[INFO] Waiting 5 seconds before clicking final Get Link...")
-                            await page.wait_for_timeout(5000)
-                            href = await btn.get_attribute("href")
-                            if href:
-                                final_url = href
-                                print(f"[SUCCESS] Final Resolved URL: {final_url}")
-                                break
-                        else:
-                            await btn.click()
-                            await page.wait_for_load_state("domcontentloaded")
-                            found = True
-                            break
-                except Exception as e:
-                    continue
+                    print(f"[INFO] Found button: {await btn.inner_text()}")
+                    await btn.click()
+                    await page.wait_for_timeout(3000)
+                except:
+                    print("[WARN] Couldn't click continue button.")
+                    break
+                continue
 
-            if final_url:
-                break
+            # Handle step with countdown
+            if "wait" in page.content().lower():
+                print("[INFO] Waiting for timer...")
+                await page.wait_for_timeout(15000)
 
-            if not found:
-                print("[WARN] No clickable buttons found on this step. Ending.")
-                break
+            # Check if final page with Get Link button
+            get_link_btn = await page.query_selector("text=Get Link")
+            if get_link_btn:
+                print("[INFO] Final Page Reached: Waiting for Get Link button to be enabled")
+                await page.wait_for_timeout(6000)  # wait 5-6 seconds
+                try:
+                    await get_link_btn.click()
+                    await page.wait_for_load_state('domcontentloaded')
+                    print(f"[SUCCESS] Final Resolved URL: {page.url}")
+                    return page.url
+                except:
+                    print("[ERROR] Failed to click Get Link button.")
+                    return None
+
+            # Prevent infinite loop
+            if "vplink.in" in page.url and "get" not in page.content().lower():
+                await page.wait_for_timeout(10000)
+                all_buttons = await page.query_selector_all("button")
+                for b in all_buttons:
+                    try:
+                        await b.click()
+                        await page.wait_for_timeout(3000)
+                    except:
+                        continue
+
+            # Safety exit
+            if step > 10:
+                print("[FAIL] Too many steps, exiting.")
+                return None
 
         await browser.close()
 
-        if final_url:
-            print(f"✅  Final Link: {final_url}")
-        else:
-            print("❌  Failed to resolve final link.")
-
 if __name__ == "__main__":
-    asyncio.run(solve_vplink(START_URL))
+    if len(sys.argv) != 2:
+        print("Usage: python3 bot.py <shortlink>")
+        sys.exit(1)
+
+    url = sys.argv[1]
+    final_url = asyncio.run(resolve_vplink(url))
+
+    if final_url:
+        print(f"✅   Final Link: {final_url}")
+    else:
+        print("❌   Failed to resolve final link.")
