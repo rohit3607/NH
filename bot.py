@@ -50,7 +50,7 @@ async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None)
                 'User-Agent': useragent
             },
             cookies=cookies,
-            proxy=proxy  # <-- proxy used here too
+            proxy="https://163.227.154.246:8080"  # <-- proxy used here
         ) as resp:
             try:
                 if 'application/json' in resp.headers.get('Content-Type', ''):
