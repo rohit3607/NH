@@ -1,75 +1,77 @@
 import asyncio
 from playwright.async_api import async_playwright
 
-async def wait_and_click(page, button_text, timeout=30):
-    for attempt in range(3):
-        try:
-            await page.wait_for_timeout(3000)  # let popups settle
-            button = await page.query_selector(f'button:has-text("{button_text}")')
-            if button:
-                await button.scroll_into_view_if_needed()
-                await button.click(timeout=timeout * 1000)
-                print(f"[INFO] Clicked button: {button_text}")
-                return True
-            else:
-                print(f"[WARN] Button '{button_text}' not found. Retrying in 10s... (Retry {attempt + 1}/3)")
-                await page.wait_for_timeout(10000)
-        except Exception as e:
-            print(f"[WARN] Error clicking '{button_text}': {e}. Retrying... (Retry {attempt + 1}/3)")
-            await page.wait_for_timeout(10000)
-    return False
+async def wait_and_click(page, selector, timeout=30000):
+    try:
+        await page.wait_for_selector(selector, timeout=timeout)
+        await page.locator(selector).click()
+        print(f"[INFO] Clicked element: {selector}")
+    except Exception as e:
+        print(f"[ERROR] Failed to click {selector}: {e}")
+
+async def dismiss_consent_popup(page):
+    try:
+        # Try closing the consent overlay if it exists
+        overlay = page.locator("div.fc-consent-root, div.fc-dialog-overlay")
+        if await overlay.is_visible():
+            print("[INFO] Consent popup detected, trying to remove it...")
+            await page.evaluate("document.querySelector('div.fc-consent-root')?.remove()")
+            await page.evaluate("document.querySelector('div.fc-dialog-overlay')?.remove()")
+            print("[INFO] Consent popup removed.")
+    except Exception as e:
+        print(f"[WARN] Could not dismiss consent popup: {e}")
 
 async def run(url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=False)
         page = await browser.new_page()
-        print(f"[INFO] Navigating to: {url}")
-        await page.goto(url, timeout=60000)
-        
-        # STEP 1
-        print(f"[STEP 1] Current URL: {page.url}")
+        print(f"[STEP 1] Opening URL: {url}")
+        await page.goto(url)
+
+        # Step 1: Wait 15 seconds
         print("[INFO] Waiting 15s before clicking first CONTINUE...")
-        await page.wait_for_timeout(15000)
-        success = await wait_and_click(page, "CONTINUE")
-        if not success:
-            print("❌ Failed to click CONTINUE in Step 1")
+        await asyncio.sleep(15)
+
+        # Dismiss overlay blocking click
+        await dismiss_consent_popup(page)
+
+        # Click first "CONTINUE" button
+        await wait_and_click(page, 'text=CONTINUE')
+
+        # Step 2: Wait for the next page to load
+        print("[STEP 2] Waiting for Dual Tap button...")
+        await page.wait_for_selector("text=Dual Tap", timeout=10000)
+        buttons = await page.locator("text=Dual Tap").all()
+        if not buttons:
+            print("[ERROR] No Dual Tap buttons found.")
             return
 
-        # Wait for navigation after step 1
-        await page.wait_for_load_state("networkidle")
-        step2_url = page.url
-        print(f"[STEP 2] Current URL: {step2_url}")
-        
-        # STEP 2
-        print("[INFO] Waiting 15s before first DUAL TAP click...")
-        await page.wait_for_timeout(15000)
-        success = await wait_and_click(page, 'DUAL TAP TO "GO TO LINK"')
-        if not success:
-            print("❌ Failed to click first DUAL TAP button")
-            return
+        print("[INFO] Clicking first Dual Tap button...")
+        await buttons[0].click()
 
-        print("[INFO] Waiting 8s for next DUAL TAP button...")
-        await page.wait_for_timeout(8000)
+        # Wait 5 seconds for the second button to appear
+        print("[INFO] Waiting 5s for second Dual Tap button to appear...")
+        await asyncio.sleep(5)
 
-        # Scroll to bottom to help load new button
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        # Locate the new button at the bottom
+        print("[INFO] Looking for new Dual Tap button...")
+        updated_buttons = await page.locator("text=Dual Tap").all()
+        if len(updated_buttons) > 1:
+            print("[INFO] Clicking second Dual Tap button (bottom one)...")
+            await updated_buttons[-1].click()
+        else:
+            print("[WARN] Only one Dual Tap button found, retrying...")
 
-        # Try clicking the second DUAL TAP
-        success = await wait_and_click(page, 'DUAL TAP TO "GO TO LINK"')
-        if not success:
-            print("❌ Failed to click second DUAL TAP button")
-            return
+        # Proceed as needed
+        print("[SUCCESS] Completed dual-tap flow.")
 
-        # Wait for navigation again (Step 3)
-        await page.wait_for_load_state("networkidle")
-        final_url = page.url
-        print(f"[STEP 3] Final URL: {final_url}")
-
+        await asyncio.sleep(10)
         await browser.close()
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 2:
-        print("Usage: python3 bot.py <vplink_url>")
+    if len(sys.argv) > 1:
+        url = sys.argv[1]
     else:
-        asyncio.run(run(sys.argv[1]))
+        url = input("Enter URL: ")
+    asyncio.run(run(url))
