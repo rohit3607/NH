@@ -1,66 +1,83 @@
-from aiohttp import ClientSession
-from asyncio import run
+import aiohttp
+import asyncio
 from bs4 import BeautifulSoup
-from asyncio import sleep as asleep
+import time
 
-class DDLException(Exception):
-    pass
 
-async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None) -> str:
-    code = url.rstrip("/").split("/")[-1]
-    useragent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+async def test_proxy(proxy_url):
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://httpbin.org/ip", proxy=proxy_url, timeout=10) as resp:
+                data = await resp.json()
+                print(f"[SUCCESS] Proxy works: {data}")
+                return True
+    except Exception as e:
+        print(f"[ERROR] Proxy failed: {proxy_url} | {e}")
+        return False
 
-    async with ClientSession() as session:
 
-        async with session.get(
-            f"{DOMAIN}/{code}", 
-            headers={'User-Agent': useragent},
-            proxy=proxy
-        ) as res:
-            html = await res.text()
+async def transcript(url: str, DOMAIN: str, ref: str, sltime: int = 7, proxy: str = None) -> str:
+    try:
+        async with aiohttp.ClientSession(headers={
+            "referer": ref,
+            "origin": DOMAIN,
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }) as session:
+            # Step 1
+            async with session.get(url, proxy=proxy, timeout=10) as r:
+                html = await r.text()
+                soup = BeautifulSoup(html, "html.parser")
+                _token = soup.find("input", {"name": "_token"})["value"]
+                alias = soup.find("input", {"name": "alias"})["value"]
 
-        async with session.get(
-            f"{DOMAIN}/{code}", 
-            headers={'Referer': ref, 'User-Agent': useragent},
-            proxy=proxy  # <-- proxy used here
-        ) as res:
-            html = await res.text()
-            cookies = res.cookies
+            # Step 2
+            await asyncio.sleep(sltime)
+            async with session.post(
+                DOMAIN + "/links/go",
+                data={"_token": _token, "alias": alias},
+                headers={"x-requested-with": "XMLHttpRequest"},
+                proxy=proxy,
+                timeout=10
+            ) as r:
+                res_json = await r.json()
+                return res_json.get("url", "❌ Final URL not found!")
 
-        soup = BeautifulSoup(html, "html.parser")
-        title_tag = soup.find('title')
+    except Exception as e:
+        return f"[❌ ERROR] {e}"
 
-        if title_tag and title_tag.text == 'Just a moment...':
-            return "Unable To Bypass Due To Cloudflare Protected"
-        
-        data = {
-            inp.get('name'): inp.get('value') 
-            for inp in soup.find_all('input') 
-            if inp.get('name') and inp.get('value')
-        }
-
-        await asleep(sltime)
-
-        async with session.post(
-            f"{DOMAIN}/links/go",
-            data=data,
-            headers={
-                'Referer': f"{DOMAIN}/{code}",
-                'X-Requested-With': 'XMLHttpRequest',
-                'User-Agent': useragent
-            },
-            cookies=cookies,
-            proxy=proxy  # <-- proxy used here too
-        ) as resp:
-            try:
-                if 'application/json' in resp.headers.get('Content-Type', ''):
-                    return (await resp.json())['url']
-            except Exception:
-                raise DDLException("Link Extraction Failed")
 
 async def main():
-    proxy = "http://195.250.31.18:80"
-    link = await transcript("https://vplink.in/UNqtJ1lP", "https://vplink.in/", "https://kaomojihub.com/", 7 , proxy = proxy)
-    print(link)
+    proxies = [
+        "http://103.47.93.248:8080",
+        "http://103.172.70.50:8080",
+        "http://103.169.70.50:8080",
+        "http://103.148.33.234:8080",
+        # Add more proxies here
+    ]
 
-run(main())
+    working_proxy = None
+    for proxy in proxies:
+        print(f"🔍 Testing proxy: {proxy}")
+        if await test_proxy(proxy):
+            working_proxy = proxy
+            break
+
+    if working_proxy:
+        print(f"✅ Using working proxy: {working_proxy}")
+    else:
+        print("⚠️ No working proxies found. Trying without proxy.")
+        working_proxy = None
+
+    final_link = await transcript(
+        url="https://vplink.in/UNqtJ1lP",
+        DOMAIN="https://vplink.in/",
+        ref="https://kaomojihub.com/",
+        sltime=7,
+        proxy=working_proxy
+    )
+
+    print(f"\n🎯 Final Bypassed Link: {final_link}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
