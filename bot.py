@@ -22,7 +22,7 @@ async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None)
         async with session.get(
             f"{DOMAIN}/{code}", 
             headers={'Referer': ref, 'User-Agent': useragent},
-            proxy="https://163.227.154.246:8080"  # <-- proxy used here
+            proxy=proxy  # <-- proxy used here
         ) as res:
             html = await res.text()
             cookies = res.cookies
@@ -50,7 +50,7 @@ async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None)
                 'User-Agent': useragent
             },
             cookies=cookies,
-            proxy="https://163.227.154.246:8080"  # <-- proxy used here
+            proxy=proxy  # <-- proxy used here too
         ) as resp:
             try:
                 if 'application/json' in resp.headers.get('Content-Type', ''):
@@ -59,7 +59,7 @@ async def transcript(url: str, DOMAIN: str, ref: str, sltime, proxy: str = None)
                 raise DDLException("Link Extraction Failed")
 
 async def main():
-    proxy = "http://qbwkdsxg:bb7kcdf9n214@38.154.227.167:5868"
+    proxy = "http://195.250.31.18:80"
     link = await transcript("https://vplink.in/UNqtJ1lP", "https://vplink.in/", "https://kaomojihub.com/", 7 , proxy = proxy)
     print(link)
 
