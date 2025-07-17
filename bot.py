@@ -78,25 +78,27 @@ async def bypass_vplink(url: str):
                         text = (await btn.inner_text()).strip().upper()
                         if text in previously_clicked_texts:
                             continue
-                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE", "DUAL TAP"]):
-                            print(f"[INFO] Clicking newly appeared button: {text}")
+                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE"]):
+                            print(f"[INFO] Clicking newly appeared button after dual tap: {text}")
                             await btn.scroll_into_view_if_needed()
                             await btn.click(timeout=10000)
-                            await page.wait_for_timeout(5000)
                             previously_clicked_texts.add(text)
+                            await page.wait_for_timeout(3000)
                             break
-                    except:
+                    except Exception as e:
+                        print(f"[WARN] Failed to click button after dual tap: {e}")
                         continue
 
             await page.wait_for_timeout(2000)
 
             if "vplink.in" in page.url and "go" in page.url:
                 print(f"[SUCCESS] Final Link: {page.url}")
-                break
+                return page.url
 
             step += 1
 
         await browser.close()
+        return None
 
 # For testing
 if __name__ == "__main__":
