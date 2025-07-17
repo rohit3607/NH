@@ -10,93 +10,76 @@ async def bypass_vplink(url: str):
         page = await context.new_page()
         await page.goto(url, timeout=60000)
 
+        clicked_buttons = set()
+        max_steps = 20
         step = 1
-        first_page = True
 
-        previously_clicked_texts = set()
-
-        while True:
+        while step <= max_steps:
             print(f"[STEP {step}] Current URL: {page.url}")
             await page.wait_for_timeout(1000)
 
-            if first_page:
-                print("[INFO] Waiting 15s before clicking first CONTINUE...")
-                await page.wait_for_timeout(15000)
-                first_page = False
+            # Check if it's the final vplink destination
+            if "vplink.in" in page.url and "go" in page.url:
+                print("[INFO] Detected final vplink.in 'go' page. Waiting 10s...")
+                await page.wait_for_timeout(10000)
 
-            retry_count = 0
-            max_retries = 3
-            clicked = False
-            special_dual_tap_clicked = False
-
-            while retry_count < max_retries and not clicked:
-                buttons = await page.locator("button, a").all()
-
-                for button in buttons:
-                    try:
-                        text = (await button.inner_text()).strip().upper()
-
-                        if text in previously_clicked_texts:
-                            continue  # skip already clicked buttons
-
-                        if step == 2 and any(key in text for key in ["DUAL TAP", "CLICK HERE"]):
-                            print(f"[INFO] Step 2 Special Button Found: {text}")
-                            await button.scroll_into_view_if_needed()
-                            await button.click(timeout=10000)
-                            special_dual_tap_clicked = True
-                            clicked = True
-                            previously_clicked_texts.add(text)
-                            break
-
-                        elif text in ["CONTINUE", "GET LINK", "GO TO LINK"]:
-                            print(f"[INFO] Found button: {text}")
-                            await button.scroll_into_view_if_needed()
-                            await button.click(timeout=10000)
-                            clicked = True
-                            previously_clicked_texts.add(text)
-                            break
-                    except:
-                        continue
-
-                if not clicked:
-                    retry_count += 1
-                    print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
-                    await page.wait_for_timeout(10000)
-
-            if not clicked:
-                print("[ERROR] Could not click button after retries. Ending.")
-                break
-
-            if special_dual_tap_clicked:
-                print("[INFO] Waiting 5s after clicking Dual Tap...")
-                await page.wait_for_timeout(5000)
-
-                # After waiting, find a new button (not previously clicked)
-                new_buttons = await page.locator("button, a").all()
-                for btn in reversed(new_buttons):  # bottom-first
+                # Attempt to extract href from a button or anchor with link text
+                buttons = await page.locator("a, button").all()
+                for btn in buttons:
                     try:
                         text = (await btn.inner_text()).strip().upper()
-                        if text in previously_clicked_texts:
-                            continue
-                        if any(key in text for key in ["GO TO LINK", "CLICK HERE", "CONTINUE", "DUAL TAP"]):
-                            print(f"[INFO] Clicking newly appeared button: {text}")
-                            await btn.scroll_into_view_if_needed()
-                            await btn.click(timeout=10000)
-                            await page.wait_for_timeout(5000)
-                            previously_clicked_texts.add(text)
-                            break
+                        if any(key in text for key in ["GET LINK", "GO TO LINK", "CONTINUE"]):
+                            href = await btn.get_attribute("href")
+                            if href and not href.startswith("javascript"):
+                                print(f"[SUCCESS] Final link extracted: {href}")
+                                await browser.close()
+                                return href
+                            else:
+                                # fallback: click it if no href
+                                await btn.scroll_into_view_if_needed()
+                                await btn.click(timeout=10000)
+                                await page.wait_for_timeout(3000)
+                                print(f"[INFO] Button clicked, URL now: {page.url}")
+                                if not page.url.startswith("about:blank"):
+                                    print(f"[SUCCESS] Final link: {page.url}")
+                                    await browser.close()
+                                    return page.url
                     except:
                         continue
 
-            await page.wait_for_timeout(2000)
+                # fallback: just return the current page url
+                print(f"[FALLBACK] Returning current page URL: {page.url}")
+                await browser.close()
+                return page.url
 
-            if "vplink.in" in page.url and "go" in page.url:
-                print(f"[SUCCESS] Final Link: {page.url}")
-                break
+            # Click all unclicked buttons every 10s
+            buttons = await page.locator("a, button").all()
+            clicked = False
+            for btn in buttons:
+                try:
+                    text = (await btn.inner_text()).strip()
+                    if text in clicked_buttons:
+                        continue
+                    print(f"[INFO] Clicking button: {text}")
+                    await btn.scroll_into_view_if_needed()
+                    await btn.click(timeout=10000)
+                    clicked_buttons.add(text)
+                    clicked = True
+                    await page.wait_for_timeout(3000)
+                    break
+                except Exception as e:
+                    continue
+
+            if not clicked:
+                print("[INFO] No new clickable button found. Waiting 10s...")
+                await page.wait_for_timeout(10000)
 
             step += 1
 
+        print("[ERROR] Max steps exceeded without resolving vplink.")
         await browser.close()
+        return None
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -104,4 +87,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     link = sys.argv[1]
-    asyncio.run(bypass_vplink(link))
+    final_link = asyncio.run(bypass_vplink(link))
+    if final_link:
+        print(f"\n✅ Bypassed Link: {final_link}")
+    else:
+        print("\n❌ Failed to bypass the link.")
