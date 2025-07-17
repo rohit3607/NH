@@ -3,8 +3,8 @@ from playwright.async_api import async_playwright
 
 
 async def handle_step_1(page):
-    print("[STEP 1] Waiting 15s...")
-    await page.wait_for_timeout(15000)
+    print("[STEP 1] Waiting 20s...")
+    await page.wait_for_timeout(20000)
 
     button = await page.query_selector("button, a")
     if button:
