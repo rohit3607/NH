@@ -11,7 +11,7 @@ async def wait_for_navigation_or_timeout(page, timeout=30):
 async def run(link):
     print(f"[INFO] Navigating to: {link}")
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         await page.goto(link)
