@@ -1,99 +1,94 @@
 import asyncio
-import sys
 from playwright.async_api import async_playwright
+import sys
 
-async def main(url):
-    print(f"[INFO] Navigating to: {url}")
+async def wait_for_navigation_or_timeout(page, timeout=30):
+    try:
+        await page.wait_for_navigation(timeout=timeout * 1000)
+    except:
+        pass  # Ignore timeout, we’ll manually check URL
 
+async def run(link):
+    print(f"[INFO] Navigating to: {link}")
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=False)
         context = await browser.new_context()
         page = await context.new_page()
+        await page.goto(link)
 
-        # Track clicked buttons to avoid re-clicks
-        clicked_buttons = set()
+        previous_url = ""
+        clicked_buttons_step2 = set()
 
-        await page.goto(url)
-        step = 1
-
-        while True:
+        # --------------------- STEP 1 ---------------------
+        for step1_try in range(3):
             current_url = page.url
-            print(f"[STEP {step}] Current URL: {current_url}")
+            print(f"[STEP 1] Current URL: {current_url}")
 
-            # STEP 1: Wait before clicking first CONTINUE
-            if step == 1:
-                print(f"[STEP 1] Waiting 15s before clicking first CONTINUE...")
-                await asyncio.sleep(15)
+            if "vplink" not in current_url:
+                print("[INFO] URL changed → Proceeding to Step 2")
+                break
 
-                retries = 0
-                while retries < 3:
-                    try:
-                        button = await page.query_selector("text=CONTINUE")
-                        if button:
-                            await button.scroll_into_view_if_needed()
-                            await button.click()
-                            print(f"[STEP 1] Clicking button: CONTINUE")
-                            await page.wait_for_load_state("networkidle", timeout=10000)
-                            break
-                        else:
-                            raise Exception("Button not found")
-                    except Exception as e:
-                        retries += 1
-                        print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retries}/3)")
-                        await asyncio.sleep(10)
-                else:
-                    print("[ERROR] Failed to click CONTINUE after 3 retries. Exiting.")
-                    await browser.close()
-                    return
+            print("[STEP 1] Waiting 15s before clicking first CONTINUE...")
+            await asyncio.sleep(15)
 
-                # Wait for URL change
-                for _ in range(10):
+            buttons = await page.locator("text=CONTINUE").all()
+            if not buttons:
+                print(f"[WARN] 'CONTINUE' button not found. Retrying in 10s... (Retry {step1_try+1}/3)")
+                await asyncio.sleep(10)
+                continue
+
+            for btn in buttons:
+                try:
+                    print("[STEP 1] Clicking button: CONTINUE")
+                    await btn.click(timeout=5000)
+                    await wait_for_navigation_or_timeout(page)
                     await asyncio.sleep(2)
-                    if page.url != current_url:
-                        print("[INFO] URL changed → Proceeding to Step 2")
+                except Exception as e:
+                    print(f"[ERROR] Step 1 click failed: {e}")
+
+        # --------------------- STEP 2 ---------------------
+        for step2_try in range(10):
+            current_url = page.url
+            print(f"[STEP 2] Current URL: {current_url}")
+
+            if current_url != previous_url and "kaomojihub" not in current_url:
+                print("[INFO] URL changed → Likely completed.")
+                break
+
+            previous_url = current_url
+            print("[STEP 2] Waiting 15s before clicking button...")
+            await asyncio.sleep(15)
+
+            buttons = await page.locator("button, a").all()
+
+            clicked = False
+            for btn in buttons:
+                try:
+                    text = await btn.inner_text()
+                    if text and "GO TO LINK" in text.upper():
+                        if text in clicked_buttons_step2:
+                            continue
+                        print(f"[STEP 2] Clicking button: {text.strip()}")
+                        await btn.click(timeout=5000)
+                        clicked_buttons_step2.add(text)
+                        await wait_for_navigation_or_timeout(page)
+                        await asyncio.sleep(2)
+                        clicked = True
                         break
-                else:
-                    print("[WARN] Still on same URL after CONTINUE.")
-                    break
+                except:
+                    continue
 
-                step = 2
+            if not clicked:
+                print("[STEP 2] No clickable 'GO TO LINK' button found. Retrying...")
 
-            # STEP 2
-            elif step == 2:
-                print(f"[STEP 2] Waiting 15s before clicking first button...")
-                await asyncio.sleep(15)
+        # Final URL
+        final_url = page.url
+        print(f"[✅ DONE] Final URL: {final_url}")
 
-                buttons = await page.query_selector_all("button, a")
-                clicked_any = False
-
-                for btn in buttons:
-                    try:
-                        text = (await btn.inner_text()).strip()
-                        if text and text not in clicked_buttons and "GO TO LINK" in text.upper():
-                            clicked_buttons.add(text)
-                            print(f"[STEP 2] Clicking first button: {text}")
-                            await btn.scroll_into_view_if_needed()
-                            await btn.click()
-                            await page.wait_for_timeout(3000)
-                            clicked_any = True
-                            break
-                    except Exception:
-                        continue
-
-                if page.url != current_url:
-                    print("[INFO] URL changed → Final redirect reached")
-                    break
-                elif not clicked_any:
-                    print("[WARN] No unclicked button found. Retrying...")
-                    await asyncio.sleep(5)
-                else:
-                    print("[STEP 2] Still on same URL. Staying in Step 2")
-
-        print(f"[SUCCESS] Final URL: {page.url}")
         await browser.close()
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python3 bot.py <url>")
     else:
-        asyncio.run(main(sys.argv[1]))
+        asyncio.run(run(sys.argv[1]))
