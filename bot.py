@@ -13,9 +13,11 @@ async def bypass_vplink(url: str):
         step = 1
         first_page = True
         already_clicked_step2 = False
+        clicked_elements = set()
 
         while True:
-            print(f"[STEP {step}] Current URL: {page.url}")
+            current_url = page.url
+            print(f"[STEP {step}] Current URL: {current_url}")
             await page.wait_for_timeout(1000)
 
             if first_page:
@@ -34,16 +36,19 @@ async def bypass_vplink(url: str):
                 print("[STEP 2] Waiting 15s before clicking first button...")
                 await page.wait_for_timeout(15000)
 
-                # Click first button
-                for btn in buttons:
+                # Click first valid button
+                for i, btn in enumerate(buttons):
                     try:
                         text = (await btn.inner_text()).strip().upper()
                         if any(key in text for key in ["DUAL TAP", "CLICK HERE", "GO TO LINK"]):
-                            print(f"[STEP 2] Clicking first button: {text}")
-                            await btn.scroll_into_view_if_needed()
-                            await btn.click(timeout=10000)
-                            clicked = True
-                            break
+                            element_key = f"step2-first-{i}"
+                            if element_key not in clicked_elements:
+                                print(f"[STEP 2] Clicking first button: {text}")
+                                await btn.scroll_into_view_if_needed()
+                                await btn.click(timeout=10000)
+                                clicked_elements.add(element_key)
+                                clicked = True
+                                break
                     except:
                         continue
 
@@ -53,18 +58,21 @@ async def bypass_vplink(url: str):
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     await page.wait_for_timeout(3000)
 
-                    # Find second button with same name
+                    # Find and click second button
                     buttons = await page.locator("button, a").all()
-                    for btn in reversed(buttons):
+                    for i, btn in enumerate(reversed(buttons)):
                         try:
                             text = (await btn.inner_text()).strip().upper()
                             if any(key in text for key in ["DUAL TAP", "CLICK HERE", "GO TO LINK"]):
-                                print(f"[STEP 2] Clicking second button: {text}")
-                                await btn.scroll_into_view_if_needed()
-                                await btn.click(timeout=10000)
-                                clicked = True
-                                already_clicked_step2 = True
-                                break
+                                element_key = f"step2-second-{i}"
+                                if element_key not in clicked_elements:
+                                    print(f"[STEP 2] Clicking second button: {text}")
+                                    await btn.scroll_into_view_if_needed()
+                                    await btn.click(timeout=10000)
+                                    clicked_elements.add(element_key)
+                                    already_clicked_step2 = True
+                                    clicked = True
+                                    break
                         except:
                             continue
 
@@ -73,15 +81,18 @@ async def bypass_vplink(url: str):
                 print("[STEP 3] Waiting 15s before retrying click...")
                 await page.wait_for_timeout(15000)
                 buttons = await page.locator("button, a").all()
-                for button in buttons:
+                for i, button in enumerate(buttons):
                     try:
                         text = (await button.inner_text()).strip().upper()
                         if any(t in text for t in ["GET LINK", "CONTINUE", "CLICK HERE", "GO TO LINK"]):
-                            print(f"[STEP 3] Clicking button: {text}")
-                            await button.scroll_into_view_if_needed()
-                            await button.click(timeout=10000)
-                            clicked = True
-                            break
+                            element_key = f"step3-{i}"
+                            if element_key not in clicked_elements:
+                                print(f"[STEP 3] Clicking button: {text}")
+                                await button.scroll_into_view_if_needed()
+                                await button.click(timeout=10000)
+                                clicked_elements.add(element_key)
+                                clicked = True
+                                break
                     except:
                         continue
 
@@ -103,19 +114,22 @@ async def bypass_vplink(url: str):
                         except:
                             continue
 
-            # -------- REGULAR RETRY FOR OTHER STEPS -------- #
+            # -------- REGULAR BUTTON CLICK RETRY -------- #
             else:
                 while retry_count < max_retries and not clicked:
                     buttons = await page.locator("button, a").all()
-                    for button in buttons:
+                    for i, button in enumerate(buttons):
                         try:
                             text = (await button.inner_text()).strip().upper()
                             if any(t in text for t in ["CONTINUE", "GET LINK", "GO TO LINK", "CLICK HERE"]):
-                                print(f"[INFO] Found button: {text}")
-                                await button.scroll_into_view_if_needed()
-                                await button.click(timeout=10000)
-                                clicked = True
-                                break
+                                element_key = f"step{step}-{i}"
+                                if element_key not in clicked_elements:
+                                    print(f"[STEP {step}] Clicking button: {text}")
+                                    await button.scroll_into_view_if_needed()
+                                    await button.click(timeout=10000)
+                                    clicked_elements.add(element_key)
+                                    clicked = True
+                                    break
                         except:
                             continue
 
@@ -124,13 +138,20 @@ async def bypass_vplink(url: str):
                         print(f"[WARN] Button not clickable or not found. Retrying in 10s... (Retry {retry_count}/{max_retries})")
                         await page.wait_for_timeout(10000)
 
-            # Final URL check
+            # -------- FINAL PAGE CHECK -------- #
             if "vplink.in" in page.url and "go" in page.url:
                 print(f"[SUCCESS] Final Redirect URL: {page.url}")
                 break
 
-            step += 1
-            await page.wait_for_timeout(2000)
+            # -------- STEP TRANSITION CHECK -------- #
+            await page.wait_for_timeout(3000)
+            new_url = page.url
+
+            if new_url != current_url:
+                print(f"[INFO] URL changed → Proceeding to Step {step + 1}")
+                step += 1
+            else:
+                print(f"[WARN] Still on same URL. Staying in Step {step}")
 
         await browser.close()
 
